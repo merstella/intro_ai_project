@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Route Finder</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f7f7f7;
+        }
+
+        header {
+            background-color: #4CAF50;
+            color: white;
+            text-align: center;
+            padding: 10px 0;
+            font-size: 24px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        #map {
+            height: 500px;
+            width: 100%;
+            border-radius: 8px;
+        }
+
+        .controls {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 0 10px;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #f0f8ff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .result p {
+            font-size: 18px;
+            color: #333;
+        }
+
+        .result .distance, .result .time {
+            font-weight: bold;
+            color: #4CAF50;
+        }
+
+        .mode-selector {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        .mode-selector label {
+            font-size: 16px;
+            color: #333;
+        }
+
+        .mode-selector input[type="radio"] {
+            margin-right: 10px;
+        }
+
+        .clear-btn {
+            background-color: #f44336;
+            font-size: 16px;
+        }
+
+        .clear-btn:hover {
+            background-color: #e53935;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        Route Finder: Choose Your Start and Goal Points
+    </header>
+
+    <div class="container">
+        <div id="map"></div>
+
+        <div class="controls">
+            <button id="findRouteBtn">Find Route</button>
+            <button id="clearBtn" class="clear-btn">Clear</button>
+        </div>
+
+        <div class="mode-selector">
+            <label><input type="radio" name="mode" value="car" checked> Car</label>
+            <label><input type="radio" name="mode" value="walk"> Walk</label>
+            <label><input type="radio" name="mode" value="bike"> Bike</label>
+        </div>
+
+        <div class="result" id="result">
+            <p id="route-distance">Distance: --</p>
+            <p id="route-time">Estimated Time: --</p>
+        </div>
+    </div>
+
+    <script>
+        const map = L.map('map').setView([21.03430, 105.82181], 15);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+        let startLat, startLon, goalLat, goalLon;
+        let startMarker, goalMarker;
+        let routeLayer = null;
+
+        map.on('click', function(e) {
+            if (!startMarker) {
+                startLat = e.latlng.lat;
+                startLon = e.latlng.lng;
+                startMarker = L.marker([startLat, startLon]).addTo(map).bindPopup('Start Point').openPopup();
+            } else if (!goalMarker) {
+                goalLat = e.latlng.lat;
+                goalLon = e.latlng.lng;
+                goalMarker = L.marker([goalLat, goalLon]).addTo(map).bindPopup('Goal Point').openPopup();
+            }
+        });
+
+        $('#findRouteBtn').click(function() {
+            if (startLat && startLon && goalLat && goalLon) {
+                const mode = $('input[name="mode"]:checked').val();
+                $.post("/get_route", {
+                    start_lat: startLat,
+                    start_lon: startLon,
+                    goal_lat: goalLat,
+                    goal_lon: goalLon,
+                    mode: mode
+                }, function(data) {
+                    if (data.route) {
+                        if (routeLayer) {
+                            map.removeLayer(routeLayer);
+                        }
+
+                        routeLayer = L.polyline(data.route, {color: 'blue'}).addTo(map);
+                        map.fitBounds(routeLayer.getBounds());
+
+                        // Update distance and time
+                        $('#route-distance').text(`Distance: ${data.distance} km`);
+                        $('#route-time').text(`Estimated Time: ${data.time}`);
+                    } else {
+                        alert(data.error);
+                    }
+                });
+            } else {
+                alert("Please select both start and goal points.");
+            }
+        });
+
+        $('#clearBtn').click(function() {
+            if (startMarker) {
+                map.removeLayer(startMarker);
+                startMarker = null;
+            }
+            if (goalMarker) {
+                map.removeLayer(goalMarker);
+                goalMarker = null;
+            }
+            if (routeLayer) {
+                map.removeLayer(routeLayer);
+                routeLayer = null;
+            }
+
+            startLat = startLon = goalLat = goalLon = null;
+
+            // Reset the result text
+            $('#route-distance').text('Distance: --');
+            $('#route-time').text('Estimated Time: --');
+        });
+    </script>
+</body>
+</html>
