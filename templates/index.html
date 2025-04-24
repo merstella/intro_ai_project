@@ -115,6 +115,8 @@
         <div class="controls">
             <button id="findRouteBtn">Find Route</button>
             <button id="clearBtn" class="clear-btn">Clear</button>
+            <button id="banModeBtn">Ban Mode</button>
+            <button id="resetGraphBtn" class="clear-btn">Reset</button>
         </div>
 
         <div class="mode-selector">
@@ -131,21 +133,68 @@
 
     <script>
         const map = L.map('map').setView([21.03430, 105.82181], 15);
+
+        // Load ranh giới phường Đội Cấn từ Flask
+        $.getJSON("/get_boundary", function(data) {
+            L.geoJSON(data, {
+                style: {
+                    color: "red",
+                    weight: 2,
+                    fillOpacity: 0.1
+                }
+            }).addTo(map);
+        });
+
+
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
         let startLat, startLon, goalLat, goalLon;
         let startMarker, goalMarker;
         let routeLayer = null;
+        let banMode = false;
+        let banStart = null, banEnd = null;
+        let bannedRoutes = [];
 
         map.on('click', function(e) {
-            if (!startMarker) {
-                startLat = e.latlng.lat;
-                startLon = e.latlng.lng;
-                startMarker = L.marker([startLat, startLon]).addTo(map).bindPopup('Start Point').openPopup();
-            } else if (!goalMarker) {
-                goalLat = e.latlng.lat;
-                goalLon = e.latlng.lng;
-                goalMarker = L.marker([goalLat, goalLon]).addTo(map).bindPopup('Goal Point').openPopup();
+            if (banMode) {
+                if (!banStart) {
+                    banStart = e.latlng;
+                    banStartMarker = L.marker(banStart, { opacity: 0.6 }).addTo(map).bindPopup("Ban Start").openPopup();
+                } else if (!banEnd) {
+                    banEnd = e.latlng;
+                    banEndMarker = L.marker(banEnd, { opacity: 0.6 }).addTo(map).bindPopup("Ban End").openPopup();
+
+                    $.post('/ban_route', {
+                        start_lat: banStart.lat,
+                        start_lon: banStart.lng,
+                        end_lat: banEnd.lat,
+                        end_lon: banEnd.lng
+                    }, function(data) {
+                        if (data.route) {
+                            const redLine = L.polyline(data.route, {color: 'red', opacity: 0.4}).addTo(map);
+                            bannedRoutes.push(redLine);
+                        } else {
+                            alert(data.error);
+                        }
+
+                        // Reset vị trí và xoá marker
+                        banStart = banEnd = null;
+                        if (banStartMarker) map.removeLayer(banStartMarker);
+                        if (banEndMarker) map.removeLayer(banEndMarker);
+                        banStartMarker = banEndMarker = null;
+                    });
+                }
+            }
+            else {
+                if (!startMarker) {
+                    startLat = e.latlng.lat;
+                    startLon = e.latlng.lng;
+                    startMarker = L.marker([startLat, startLon]).addTo(map).bindPopup('Start Point').openPopup();
+                } else if (!goalMarker) {
+                    goalLat = e.latlng.lat;
+                    goalLon = e.latlng.lng;
+                    goalMarker = L.marker([goalLat, goalLon]).addTo(map).bindPopup('Goal Point').openPopup();
+                }
             }
         });
 
@@ -199,6 +248,30 @@
             $('#route-distance').text('Distance: --');
             $('#route-time').text('Estimated Time: --');
         });
+
+        $('#banModeBtn').click(function() {
+            banMode = !banMode;
+            $(this).text(banMode ? "Cancel Ban Mode" : "Ban Mode");
+            banStart = banEnd = null;
+        });
+
+        $('#resetGraphBtn').click(function() {
+            $.post('/reset_graph', {}, function() {
+                bannedRoutes.forEach(layer => map.removeLayer(layer));
+                bannedRoutes = [];
+
+                // Xoá marker nếu còn
+                if (banStartMarker) map.removeLayer(banStartMarker);
+                if (banEndMarker) map.removeLayer(banEndMarker);
+                banStartMarker = banEndMarker = null;
+                banStart = banEnd = null;
+
+                alert("Graph reset successfully.");
+            });
+        });
+
+
+
     </script>
 </body>
 </html>
