@@ -102,6 +102,27 @@
         .clear-btn:hover {
             background-color: #e53935;
         }
+
+        .suggestions-list {
+            position: absolute;
+            background: white;
+            z-index: 1000;
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            width: 250px;
+            border: 1px solid #ddd;
+            border-radius: 0 0 8px 8px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .suggestions-list li {
+            padding: 8px;
+            cursor: pointer;
+        }
+        .suggestions-list li:hover {
+            background: #f0f0f0;
+        }
     </style>
 </head>
 <body>
@@ -113,6 +134,14 @@
         <div id="map"></div>
 
         <div class="controls">
+            <div style="display:inline-block; position:relative;">
+                <input type="text" id="startSearch" placeholder="Search start location." style="width: 250px; padding: 8px;"/>
+                <ul id="startSuggestions" class="suggestions-list" style="display:none;"></ul>
+            </div>
+            <div style="display:inline-block; position:relative;">
+                <input type="text" id="goalSearch" placeholder="Search end location" style="width: 250px; padding: 8px;"/>
+                <ul id="goalSuggestions" class="suggestions-list" style="display:none;"></ul>
+            </div>
             <button id="findRouteBtn">Find Route</button>
             <button id="clearBtn" class="clear-btn">Clear</button>
             <button id="banModeBtn">Ban Mode</button>
@@ -129,12 +158,28 @@
             <p id="route-distance">Distance: --</p>
             <p id="route-time">Estimated Time: --</p>
         </div>
+
+        <div id="chatbot-container" style="position:fixed;bottom:30px;right:30px;width:350px;z-index:2000;">
+            <div id="chatbot-header" style="background:#4CAF50;color:white;padding:10px;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center;">
+                <span>🤖 HUST Map Chatbot</span>
+                <button id="chatbot-toggle" style="background:none;border:none;color:white;font-size:18px;cursor:pointer;">×</button>
+            </div>
+            <div id="chatbot-messages" style="background:white;height:220px;overflow-y:auto;padding:10px;border:1px solid #ddd;border-top:none;"></div>
+            <div style="display:flex;">
+                <input id="chatbot-input" type="text" placeholder="Ask me anything..." style="flex:1;padding:8px;border:1px solid #ddd;border-top:none;border-radius:0 0 0 8px;">
+                <button id="chatbot-send" style="background:#4CAF50;color:white;border:none;padding:8px 16px;border-radius:0 0 8px 0;">Send</button>
+            </div>
+        </div>
+
+        <button id="chatbot-open" style="display:none;position:fixed;bottom:30px;right:30px;z-index:2001;background:#4CAF50;color:white;border:none;padding:12px 18px;border-radius:50%;font-size:22px;box-shadow:0 2px 8px rgba(0,0,0,0.2);cursor:pointer;">
+            💬
+        </button>
     </div>
 
     <script>
         const map = L.map('map').setView([21.03430, 105.82181], 15);
 
-        // Load ranh giới phường Đội Cấn từ Flask
+        // Load boundary from backend (if available)
         $.getJSON("/get_boundary", function(data) {
             L.geoJSON(data, {
                 style: {
@@ -145,7 +190,6 @@
             }).addTo(map);
         });
 
-
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
         let startLat, startLon, goalLat, goalLon;
@@ -154,6 +198,76 @@
         let banMode = false;
         let banStart = null, banEnd = null;
         let bannedRoutes = [];
+        let banStartMarker = null, banEndMarker = null;
+
+        function searchLocation(query, callback) {
+            const coordMatch = query.match(/^\s*(-?\d+(\.\d+)?),\s*(-?\d+(\.\d+)?)\s*$/);
+            if (coordMatch) {
+                const lat = parseFloat(coordMatch[1]);
+                const lon = parseFloat(coordMatch[3]);
+                callback([{
+                    display_name: `Coordinates: ${lat}, ${lon}`,
+                    lat: lat,
+                    lon: lon
+                }]);
+                return;
+            }
+            $.get('/search_location', { q: query }, callback);
+        }
+
+        function showSuggestions(inputId, suggestionsId, setLatLonCallback) {
+            let debounceTimer = null;
+            $(`#${inputId}`).on('input', function() {
+                const query = $(this).val();
+                clearTimeout(debounceTimer);
+                if (query.length < 3) {
+                    $(`#${suggestionsId}`).hide().empty();
+                    return;
+                }
+                debounceTimer = setTimeout(function() {
+                    searchLocation(query, function(data) {
+                        let html = '';
+                        data.forEach(item => {
+                            html += `<li data-lat="${item.lat}" data-lon="${item.lon}">${item.display_name}</li>`;
+                        });
+                        if (html) {
+                            $(`#${suggestionsId}`).html(html).show();
+                        } else {
+                            $(`#${suggestionsId}`).hide().empty();
+                        }
+                    });
+                }, 400);
+            });
+            $(`#${suggestionsId}`).on('click', 'li', function() {
+                const lat = parseFloat($(this).data('lat'));
+                const lon = parseFloat($(this).data('lon'));
+                const name = $(this).text();
+                $(`#${inputId}`).val(name);
+                $(`#${suggestionsId}`).hide().empty();
+                setLatLonCallback(lat, lon, name);
+            });
+            $(document).on('click', function(e) {
+                if (!$(e.target).closest(`#${inputId}, #${suggestionsId}`).length) {
+                    $(`#${suggestionsId}`).hide();
+                }
+            });
+        }
+
+        showSuggestions('startSearch', 'startSuggestions', function(lat, lon, name) {
+            startLat = lat;
+            startLon = lon;
+            if (startMarker) map.removeLayer(startMarker);
+            startMarker = L.marker([lat, lon], {color: 'green'}).addTo(map).bindPopup('Start: ' + name).openPopup();
+            map.setView([lat, lon], 16);
+        });
+
+        showSuggestions('goalSearch', 'goalSuggestions', function(lat, lon, name) {
+            goalLat = lat;
+            goalLon = lon;
+            if (goalMarker) map.removeLayer(goalMarker);
+            goalMarker = L.marker([lat, lon], {color: 'red'}).addTo(map).bindPopup('Goal: ' + name).openPopup();
+            map.setView([lat, lon], 16);
+        });
 
         map.on('click', function(e) {
             if (banMode) {
@@ -163,7 +277,6 @@
                 } else if (!banEnd) {
                     banEnd = e.latlng;
                     banEndMarker = L.marker(banEnd, { opacity: 0.6 }).addTo(map).bindPopup("Ban End").openPopup();
-
                     $.post('/ban_route', {
                         start_lat: banStart.lat,
                         start_lon: banStart.lng,
@@ -176,16 +289,13 @@
                         } else {
                             alert(data.error);
                         }
-
-                        // Reset vị trí và xoá marker
                         banStart = banEnd = null;
                         if (banStartMarker) map.removeLayer(banStartMarker);
                         if (banEndMarker) map.removeLayer(banEndMarker);
                         banStartMarker = banEndMarker = null;
                     });
                 }
-            }
-            else {
+            } else {
                 if (!startMarker) {
                     startLat = e.latlng.lat;
                     startLon = e.latlng.lng;
@@ -212,11 +322,8 @@
                         if (routeLayer) {
                             map.removeLayer(routeLayer);
                         }
-
                         routeLayer = L.polyline(data.route, {color: 'blue'}).addTo(map);
                         map.fitBounds(routeLayer.getBounds());
-
-                        // Update distance and time
                         $('#route-distance').text(`Distance: ${data.distance} km`);
                         $('#route-time').text(`Estimated Time: ${data.time}`);
                     } else {
@@ -241,12 +348,11 @@
                 map.removeLayer(routeLayer);
                 routeLayer = null;
             }
-
             startLat = startLon = goalLat = goalLon = null;
-
-            // Reset the result text
             $('#route-distance').text('Distance: --');
             $('#route-time').text('Estimated Time: --');
+            $('#startSearch').val('');
+            $('#goalSearch').val('');
         });
 
         $('#banModeBtn').click(function() {
@@ -259,19 +365,65 @@
             $.post('/reset_graph', {}, function() {
                 bannedRoutes.forEach(layer => map.removeLayer(layer));
                 bannedRoutes = [];
-
-                // Xoá marker nếu còn
                 if (banStartMarker) map.removeLayer(banStartMarker);
                 if (banEndMarker) map.removeLayer(banEndMarker);
                 banStartMarker = banEndMarker = null;
                 banStart = banEnd = null;
-
                 alert("Graph reset successfully.");
             });
         });
 
+        // Chatbot logic
+        function appendMessage(sender, text) {
+            // Nếu có dấu đầu dòng, chuyển thành danh sách HTML
+            if (text.includes('- ')) {
+                // Tách tiêu đề (nếu có)
+                let lines = text.split('\n');
+                let title = '';
+                if (lines[0].toLowerCase().startsWith('bot')) {
+                    title = `<b>${lines[0]}</b>`;
+                    lines = lines.slice(1);
+                }
+                // Lọc các dòng bắt đầu bằng '-'
+                let items = lines.filter(line => line.trim().startsWith('-')).map(line => `<li>${line.replace(/^- /, '').trim()}</li>`).join('');
+                $('#chatbot-messages').append(
+                    `<div style="margin-bottom:8px;">
+                        <b>${sender}:</b><br>
+                        ${title}
+                        <ul style="margin: 4px 0 4px 18px;">${items}</ul>
+                    </div>`
+                );
+            } else {
+                // Mặc định
+                $('#chatbot-messages').append(
+                    `<div style="margin-bottom:8px;"><b>${sender}:</b> ${text}</div>`
+                );
+            }
+            $('#chatbot-messages').scrollTop($('#chatbot-messages')[0].scrollHeight);
+        }
 
+        $('#chatbot-send').click(function() {
+            const userMsg = $('#chatbot-input').val();
+            if (!userMsg.trim()) return;
+            appendMessage('You', userMsg);
+            $('#chatbot-input').val('');
+            $.post('/chatbot', {message: userMsg}, function(data) {
+                appendMessage('Bot', data.reply);
+            });
+        });
 
+        $('#chatbot-input').keypress(function(e) {
+            if (e.which === 13) $('#chatbot-send').click();
+        });
+
+        $('#chatbot-toggle').click(function() {
+            $('#chatbot-container').hide();
+            $('#chatbot-open').show();
+        });
+        $('#chatbot-open').click(function() {
+            $('#chatbot-container').show();
+            $('#chatbot-open').hide();
+        });
     </script>
 </body>
 </html>
