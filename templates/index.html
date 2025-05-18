@@ -375,16 +375,16 @@
 
         // Chatbot logic
         function appendMessage(sender, text) {
-            // Nếu có dấu đầu dòng, chuyển thành danh sách HTML
+            // If there is a bullet point, convert to HTML list
             if (text.includes('- ')) {
-                // Tách tiêu đề (nếu có)
+                // Split title (if any)
                 let lines = text.split('\n');
                 let title = '';
                 if (lines[0].toLowerCase().startsWith('bot')) {
                     title = `<b>${lines[0]}</b>`;
                     lines = lines.slice(1);
                 }
-                // Lọc các dòng bắt đầu bằng '-'
+                // Filter lines starting with '-'
                 let items = lines.filter(line => line.trim().startsWith('-')).map(line => `<li>${line.replace(/^- /, '').trim()}</li>`).join('');
                 $('#chatbot-messages').append(
                     `<div style="margin-bottom:8px;">
@@ -394,7 +394,7 @@
                     </div>`
                 );
             } else {
-                // Mặc định
+                // Default
                 $('#chatbot-messages').append(
                     `<div style="margin-bottom:8px;"><b>${sender}:</b> ${text}</div>`
                 );
